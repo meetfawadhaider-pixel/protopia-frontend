@@ -1,0 +1,62 @@
+.blob-bg {
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    left: 0;
+    width: 120%;
+    height: 100%;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  
+  .blob {
+    position: absolute;
+    border-radius: 50%;
+    opacity: 0.2;
+    filter: blur(60px);
+    animation: float 12s ease-in-out infinite;
+  }
+  
+  .blob-1 {
+    width: 300px;
+    height: 300px;
+    background: #6366f1;
+    top: 15%;
+    left: 60%;
+    animation-delay: 0s;
+  }
+  .blob-2 {
+    width: 250px;
+    height: 250px;
+    background: #ec4899;
+    bottom: 10%;
+    left: 15%;
+    animation-delay: 4s;
+  }
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-40px) translateX(20px);
+    }
+  }
+  
+  /* Floating SVG Icon Style */
+  .floating-icon {
+    position: absolute;
+    opacity: 0.08;
+    font-size: 100px;
+    pointer-events: none;
+    animation: drift 20s infinite alternate ease-in-out;
+  }
+  
+  @keyframes drift {
+    0% {
+      transform: translateY(0) rotate(0deg);
+    }
+    100% {
+      transform: translateY(-40px) rotate(15deg);
+    }
+  }
+  

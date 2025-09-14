@@ -4,9 +4,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { FaSearch, FaTrashAlt, FaEye } from "react-icons/fa";
 
-// Pick API base from env (Vite/CRA/Next) or fall back:
-// - If running on vercel.app → Railway backend
-// - Else → local dev
+// Use env on Vercel; fallback to Railway in prod, localhost in dev
 const API_BASE =
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE) ||
   (typeof process !== "undefined" && (process.env.REACT_APP_API_BASE || process.env.NEXT_PUBLIC_API_BASE)) ||
@@ -50,7 +48,7 @@ const AdminDashboard = () => {
     };
   }, []);
 
-  // 🔐 Ensure token + admin; then fetch candidates
+  // 🔐 Fetch candidates (let server enforce admin via 403)
   useEffect(() => {
     const run = async () => {
       const token = localStorage.getItem("accessToken");
@@ -60,29 +58,27 @@ const AdminDashboard = () => {
         return;
       }
       try {
-        // 1) Confirm current user is admin (is_staff)
-        const prof = await fetch(`${API_BASE}/api/accounts/profile/`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!prof.ok) throw new Error("Profile fetch failed");
-        const profile = await prof.json();
-        if (!profile?.is_staff) {
-          toast.error("Admin access required.");
-          navigate("/");
-          return;
-        }
-
-        // 2) Fetch candidates list
         const res = await fetch(`${API_BASE}/api/accounts/admin/candidates/`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) throw new Error("Unauthorized or access denied");
+
+        if (res.status === 401) {
+          toast.error("Session expired. Please log in.");
+          navigate("/login");
+          return;
+        }
+        if (res.status === 403) {
+          toast.error("Admin access required.");
+          navigate("/"); // or navigate("/login");
+          return;
+        }
+        if (!res.ok) throw new Error("Failed to fetch candidates.");
+
         const data = await res.json();
         setCandidates(data);
         setFiltered(data);
       } catch (e) {
-        toast.error("Access denied or failed to fetch candidates.");
-        navigate("/login");
+        toast.error("Failed to fetch candidates.");
       } finally {
         setLoading(false);
       }
@@ -124,11 +120,9 @@ const AdminDashboard = () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        // DRF accepts body on DELETE; backend checks password server-side
         body: JSON.stringify({ password: adminPassword }),
       });
 
-      // Attempt to parse JSON; if empty body, guard against error
       let data = null;
       try { data = await res.json(); } catch (_) {}
 
@@ -147,6 +141,12 @@ const AdminDashboard = () => {
           ]);
         }
         setWrongAttempts(0);
+      } else if (res.status === 401) {
+        toast.error("Session expired. Please log in.");
+        navigate("/login");
+      } else if (res.status === 403) {
+        toast.error("Admin access required.");
+        navigate("/");
       } else {
         setWrongAttempts((prev) => {
           const attempts = prev + 1;

@@ -4,6 +4,17 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { FaSearch, FaTrashAlt, FaEye } from "react-icons/fa";
 
+// Pick API base from env (Vite/CRA/Next) or fall back:
+// - If running on vercel.app → Railway backend
+// - Else → local dev
+const API_BASE =
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE) ||
+  (typeof process !== "undefined" && (process.env.REACT_APP_API_BASE || process.env.NEXT_PUBLIC_API_BASE)) ||
+  (typeof window !== "undefined" && window.__API_BASE__) ||
+  (typeof window !== "undefined" && window.location.hostname.includes("vercel.app")
+    ? "https://protopiabackend-production.up.railway.app"
+    : "http://localhost:8000");
+
 const AdminDashboard = () => {
   const [candidates, setCandidates] = useState([]);
   const [filtered, setFiltered] = useState([]);
@@ -20,7 +31,7 @@ const AdminDashboard = () => {
   const navigate = useNavigate();
   const idleTimer = useRef(null);
 
-  // 🔒 Idle Logout
+  // 🔒 Idle Logout (2 mins)
   useEffect(() => {
     const resetTimer = () => {
       if (idleTimer.current) clearTimeout(idleTimer.current);
@@ -29,11 +40,9 @@ const AdminDashboard = () => {
         setSessionExpired(true);
       }, 2 * 60 * 1000);
     };
-
     window.addEventListener("mousemove", resetTimer);
     window.addEventListener("keydown", resetTimer);
     resetTimer();
-
     return () => {
       window.removeEventListener("mousemove", resetTimer);
       window.removeEventListener("keydown", resetTimer);
@@ -41,35 +50,47 @@ const AdminDashboard = () => {
     };
   }, []);
 
+  // 🔐 Ensure token + admin; then fetch candidates
   useEffect(() => {
-    const fetchCandidates = async () => {
+    const run = async () => {
       const token = localStorage.getItem("accessToken");
       if (!token) {
         toast.error("Access denied. Please log in.");
         navigate("/login");
         return;
       }
-
       try {
-        const res = await fetch("http://localhost:8000/api/accounts/admin/candidates/", {
+        // 1) Confirm current user is admin (is_staff)
+        const prof = await fetch(`${API_BASE}/api/accounts/profile/`, {
           headers: { Authorization: `Bearer ${token}` },
         });
+        if (!prof.ok) throw new Error("Profile fetch failed");
+        const profile = await prof.json();
+        if (!profile?.is_staff) {
+          toast.error("Admin access required.");
+          navigate("/");
+          return;
+        }
 
+        // 2) Fetch candidates list
+        const res = await fetch(`${API_BASE}/api/accounts/admin/candidates/`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (!res.ok) throw new Error("Unauthorized or access denied");
         const data = await res.json();
         setCandidates(data);
         setFiltered(data);
-      } catch (error) {
+      } catch (e) {
         toast.error("Access denied or failed to fetch candidates.");
         navigate("/login");
       } finally {
         setLoading(false);
       }
     };
-
-    fetchCandidates();
+    run();
   }, [navigate]);
 
+  // 🔎 Client-side filtering
   useEffect(() => {
     const filteredData = candidates.filter((user) => {
       const match = `${user.first_name} ${user.last_name} ${user.email}`.toLowerCase();
@@ -93,35 +114,38 @@ const AdminDashboard = () => {
       toast.error("⚠️ Password required.");
       return;
     }
-
     const token = localStorage.getItem("accessToken");
-
     try {
       const userToDelete = filtered.find((u) => u.id === selectedUserId);
 
-      const res = await fetch(`http://localhost:8000/api/accounts/admin/delete/${selectedUserId}/`, {
+      const res = await fetch(`${API_BASE}/api/accounts/admin/delete/${selectedUserId}/`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        // DRF accepts body on DELETE; backend checks password server-side
         body: JSON.stringify({ password: adminPassword }),
       });
 
-      const data = await res.json();
+      // Attempt to parse JSON; if empty body, guard against error
+      let data = null;
+      try { data = await res.json(); } catch (_) {}
 
       if (res.ok) {
         toast.success("✅ User deleted successfully");
-        setSearch(""); // clear search
+        setSearch("");
         setFiltered((prev) => prev.filter((u) => u.id !== selectedUserId));
-        setDeletionLog((prev) => [
-          {
-            name: `${userToDelete.first_name} ${userToDelete.last_name}`,
-            email: userToDelete.email,
-            timestamp: new Date().toLocaleString(),
-          },
-          ...prev,
-        ]);
+        if (userToDelete) {
+          setDeletionLog((prev) => [
+            {
+              name: `${userToDelete.first_name} ${userToDelete.last_name}`,
+              email: userToDelete.email,
+              timestamp: new Date().toLocaleString(),
+            },
+            ...prev,
+          ]);
+        }
         setWrongAttempts(0);
       } else {
         setWrongAttempts((prev) => {
@@ -131,12 +155,12 @@ const AdminDashboard = () => {
             localStorage.removeItem("accessToken");
             navigate("/login");
           } else {
-            toast.error("❌ Invalid password.");
+            toast.error(data?.detail || "❌ Invalid password.");
           }
           return attempts;
         });
       }
-    } catch (err) {
+    } catch {
       toast.error("❌ Server error during deletion.");
     } finally {
       setShowModal(false);
@@ -216,7 +240,7 @@ const AdminDashboard = () => {
                   <td>{user.age_range}</td>
                   <td>{user.subscription_type}</td>
                   <td className="text-sm">
-                    {Object.entries(user.trait_scores).length ? (
+                    {user?.trait_scores && Object.keys(user.trait_scores).length ? (
                       <ul className="list-disc list-inside space-y-1">
                         {Object.entries(user.trait_scores).map(([k, v]) => (
                           <li key={k}><span className="text-cyan-300">{k}:</span> {v}/5</li>
